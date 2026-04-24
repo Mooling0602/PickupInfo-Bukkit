@@ -1,0 +1,4 @@
+name: PickupInfo
+version: '1.0.0'
+main: com.pickupinfo.PickupInfoPlugin
+api-version: '1.20'
