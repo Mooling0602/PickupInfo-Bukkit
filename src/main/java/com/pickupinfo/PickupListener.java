@@ -12,6 +12,8 @@ import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
+
 import java.util.*;
 
 public class PickupListener implements Listener {
@@ -19,17 +21,18 @@ public class PickupListener implements Listener {
     private final Plugin plugin;
     private final Map<UUID, List<Change>> pendingChanges = new HashMap<>();
     private final Map<UUID, Map<Integer, ItemStack>> inventorySnapshots = new HashMap<>();
-    private int flushTaskId = -1;
+    private ScheduledTask flushTask;
 
     public PickupListener(Plugin plugin) {
         this.plugin = plugin;
-        flushTaskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, this::flushAll, 1L, 20L);
+        flushTask = plugin.getServer().getGlobalRegionScheduler()
+            .runAtFixedRate(plugin, t -> flushAll(), 1L, 20L);
     }
 
     public void cancel() {
-        if (flushTaskId != -1) {
-            Bukkit.getScheduler().cancelTask(flushTaskId);
-            flushTaskId = -1;
+        if (flushTask != null) {
+            flushTask.cancel();
+            flushTask = null;
         }
     }
 
@@ -76,7 +79,7 @@ public class PickupListener implements Listener {
         }
         inventorySnapshots.put(uuid, snapshot);
 
-        Bukkit.getScheduler().runTask(plugin, () -> processClearDiff(finalTarget));
+        plugin.getServer().getGlobalRegionScheduler().run(plugin, t -> processClearDiff(finalTarget));
     }
 
     private void processClearDiff(Player player) {
