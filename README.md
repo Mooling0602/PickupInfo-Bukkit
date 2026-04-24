@@ -1,3 +1,6 @@
+- English
+- [Chinese (Simplified)](README_zh_CN.md)
+
 # PickupInfo
 
 A Bukkit plugin that displays item changes (pickups, drops, and command clears) in the player's action bar.

@@ -1,3 +1,6 @@
+- [English](README.md)
+- 中文（简体）
+
 # PickupInfo
 
 一个 Bukkit 插件，在玩家动作栏（ActionBar）显示物品变化信息（拾取、丢弃、指令清除）。
