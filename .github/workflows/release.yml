@@ -29,6 +29,13 @@ jobs:
             found { print }
           ' CHANGELOG.md > release_body.md
           echo "Extracted changelog for $version"
+      - name: Delete existing release if any
+        run: |
+          gh release view "${{ github.ref_name }}" --json id 2>/dev/null && \
+            gh release delete "${{ github.ref_name }}" --yes || \
+            echo "No existing release to delete"
+        env:
+          GH_TOKEN: ${{ github.token }}
       - uses: softprops/action-gh-release@v2
         with:
           files: target/PickupInfo-*.jar
