@@ -43,3 +43,11 @@ Item names: uses `ItemMeta#getDisplayName()` if a custom name exists, otherwise 
 ## Dependencies
 
 - `io.papermc.paper:paper-api:1.20.4-R0.1-SNAPSHOT` (provided)
+
+## Release process
+
+1. Update version in `pom.xml` if needed
+2. Commit with message `release: v<version>` (e.g. `release: v1.0.0`)
+3. Create annotated tag: `git tag -a <version> -m "commit <hash>"`  (tag has **no** `v` prefix; e.g. `1.0.0`)
+4. Push the tag: `git push origin <version>`
+5. GitHub Actions builds and creates a Release automatically
