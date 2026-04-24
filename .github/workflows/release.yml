@@ -19,18 +19,19 @@ jobs:
           distribution: temurin
           cache: maven
       - run: mvn clean package
+      - name: Extract changelog
+        id: changelog
+        run: |
+          version="v${{ github.ref_name }}"
+          awk -v ver="$version" '
+            $0 ~ "^## " ver "$" { found=1; next }
+            found && /^## v/ { exit }
+            found { print }
+          ' CHANGELOG.md > release_body.md
+          echo "Extracted changelog for $version"
       - uses: softprops/action-gh-release@v2
         with:
           files: target/PickupInfo-*.jar
           tag_name: ${{ github.ref_name }}
-          name: PickupInfo ${{ github.ref_name }}
-          body: |
-            PickupInfo ${{ github.ref_name }}
-
-            ## Changes
-
-            <!-- Summarize changes since the last release here -->
-
-            ## Installation
-
-            Download `PickupInfo-*.jar` and place it in your server's `plugins/` folder.
+          name: v${{ github.ref_name }}
+          body_path: release_body.md
