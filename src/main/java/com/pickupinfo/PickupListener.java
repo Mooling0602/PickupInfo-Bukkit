@@ -2,12 +2,12 @@ package com.pickupinfo;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityPickupItemEvent;
-import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
@@ -15,6 +15,8 @@ import org.bukkit.plugin.Plugin;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 
 import java.util.*;
+
+import org.bukkit.event.server.ServerCommandEvent;
 
 public class PickupListener implements Listener {
 
@@ -54,64 +56,88 @@ public class PickupListener implements Listener {
     }
 
     @EventHandler
-    public void onCommand(PlayerCommandPreprocessEvent event) {
-        String cmd = event.getMessage().toLowerCase(Locale.ROOT).split(" ")[0];
-        if (!cmd.equals("/clear") && !cmd.equals("/minecraft:clear")) return;
-
-        String[] parts = event.getMessage().split(" ");
-        Player target = event.getPlayer();
-        if (parts.length >= 2) {
-            Player parsed = Bukkit.getPlayerExact(parts[1]);
-            if (parsed != null && parsed.isOnline()) {
-                target = parsed;
-            }
+    public void onServerCommand(ServerCommandEvent event) {
+        String command = event.getCommand().trim();
+        String lower = command.toLowerCase(Locale.ROOT);
+        if (!lower.startsWith("give ") && !lower.startsWith("minecraft:give ")
+            && !lower.startsWith("clear") && !lower.startsWith("minecraft:clear")) {
+            return;
         }
-        plugin.getLogger().info(target.getName() + " executed " + cmd + " (source: " + event.getPlayer().getName() + ")");
 
-        Player finalTarget = target;
-        UUID uuid = finalTarget.getUniqueId();
+        String[] parts = command.split(" ");
+        String cmdBase = parts[0].toLowerCase(Locale.ROOT).replace("minecraft:", "");
+
+        Player target = null;
+        if (cmdBase.equals("give") && parts.length >= 3) {
+            target = Bukkit.getPlayerExact(parts[1]);
+        } else if (cmdBase.equals("clear") && parts.length >= 2) {
+            target = Bukkit.getPlayerExact(parts[1]);
+        }
+
+        if (target == null || !target.isOnline()) return;
+
+        Player affected = target;
+        plugin.getLogger().info("Console affecting " + affected.getName() + ": " + command);
+
+        // Snapshot inventory before command executes
+        UUID uuid = affected.getUniqueId();
         Map<Integer, ItemStack> snapshot = new HashMap<>();
-        for (int i = 0; i < finalTarget.getInventory().getSize(); i++) {
-            ItemStack item = finalTarget.getInventory().getItem(i);
+        for (int i = 0; i < target.getInventory().getSize(); i++) {
+            ItemStack item = target.getInventory().getItem(i);
             if (item != null) {
                 snapshot.put(i, item.clone());
             }
         }
         inventorySnapshots.put(uuid, snapshot);
 
-        plugin.getServer().getGlobalRegionScheduler().run(plugin, t -> processClearDiff(finalTarget));
+        // Diff next tick after command executes
+        plugin.getServer().getGlobalRegionScheduler().run(plugin, t -> processInventoryDiff(affected));
     }
 
-    private void processClearDiff(Player player) {
+    private void processInventoryDiff(Player player) {
         UUID uuid = player.getUniqueId();
         Map<Integer, ItemStack> snapshot = inventorySnapshots.remove(uuid);
         if (snapshot == null) return;
 
-        Map<String, Integer> diff = new LinkedHashMap<>();
-        Map<String, String> diffKeys = new HashMap<>();
+        List<Change> changes = new ArrayList<>();
+        Set<Integer> checkedSlots = new HashSet<>();
 
+        // Check slots from snapshot (detect both additions and removals)
         for (Map.Entry<Integer, ItemStack> entry : snapshot.entrySet()) {
             int slot = entry.getKey();
+            checkedSlots.add(slot);
             ItemStack oldItem = entry.getValue();
             ItemStack newItem = player.getInventory().getItem(slot);
 
             int oldAmount = oldItem.getAmount();
             int newAmount = (newItem != null && newItem.isSimilar(oldItem)) ? newItem.getAmount() : 0;
 
-            if (oldAmount > newAmount) {
+            if (newAmount > oldAmount) {
                 ItemInfo info = getItemInfo(oldItem);
-                diff.merge(info.key, oldAmount - newAmount, Integer::sum);
-                diffKeys.putIfAbsent(info.key, info.translationKey);
+                changes.add(new Change(info.key, info.translationKey, newAmount - oldAmount, true));
+            } else if (oldAmount > newAmount) {
+                ItemInfo info = getItemInfo(oldItem);
+                changes.add(new Change(info.key, info.translationKey, oldAmount - newAmount, false));
             }
         }
 
-        if (!diff.isEmpty()) {
-            plugin.getLogger().info(player.getName() + " /clear diff: " + diff);
-            List<Change> changes = new ArrayList<>();
-            diff.forEach((key, count) -> changes.add(new Change(key, diffKeys.get(key), count, false)));
-            flushChanges(player, changes);
+        // Check slots that were empty but now have items (new items)
+        for (int i = 0; i < player.getInventory().getSize(); i++) {
+            if (checkedSlots.contains(i)) continue;
+            ItemStack newItem = player.getInventory().getItem(i);
+            if (newItem != null) {
+                ItemInfo info = getItemInfo(newItem);
+                changes.add(new Change(info.key, info.translationKey, newItem.getAmount(), true));
+            }
+        }
+
+        if (!changes.isEmpty()) {
+            plugin.getLogger().info(player.getName() + " console diff: " + changes.stream()
+                .map(c -> (c.added ? "+" : "-") + c.count + " " + c.key)
+                .reduce((a, b) -> a + " | " + b).orElse(""));
+            flushChanges(player, mergeChanges(changes));
         } else {
-            plugin.getLogger().info(player.getName() + " /clear diff: empty (no items lost?)");
+            plugin.getLogger().info(player.getName() + " console diff: empty (command likely failed)");
         }
     }
 
@@ -194,10 +220,12 @@ public class PickupListener implements Listener {
         return result;
     }
 
+    @SuppressWarnings("removal") // getTranslationKey() — no replacement in 1.20.4 API
     private static ItemInfo getItemInfo(ItemStack item) {
         if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
-            String customName = item.getItemMeta().getDisplayName();
-            return new ItemInfo(customName, customName, null);
+            Component displayName = item.getItemMeta().displayName();
+            String plain = PlainTextComponentSerializer.plainText().serialize(displayName);
+            return new ItemInfo(plain, plain, null);
         }
         String translationKey = item.getType().getTranslationKey();
         return new ItemInfo(translationKey, translationKey, translationKey);
