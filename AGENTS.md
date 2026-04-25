@@ -4,6 +4,14 @@ Bukkit plugin — displays item pickup and loss changes in the player's action b
 
 Shows a message in the action bar when a player picks up an item, drops an item, or loses items via commands (e.g. `/clear`).
 
+> This message is written by human(user).
+>
+> If you read this file, you should know the following informations are out of date.
+>
+> You can ignore this file, or if you want to continue to reuse it, you should now update with actual informations from the repository.
+>
+> Ask user for everything you don't cleared with.
+
 ## Message format
 
 - Pattern: `+2 Diamond` / `-2 Diamond`
